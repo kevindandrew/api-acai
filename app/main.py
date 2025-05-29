@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 # Importar todos los routers
 
 from app.routers.auth import router as auth_router
@@ -19,6 +18,13 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # o especifica ["http://localhost:3000"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Incluir todos los routers
 app.include_router(auth_router)
@@ -31,8 +37,3 @@ app.include_router(pedidos_router)
 app.include_router(reportes_router)
 app.include_router(predicciones_router)
 # Endpoint básico de healthcheck
-
-
-@app.get("/healthcheck", include_in_schema=False)
-async def healthcheck():
-    return {"status": "ok"}
