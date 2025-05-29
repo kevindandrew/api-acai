@@ -5,7 +5,7 @@ from app.models.personal import Personal
 from app.database import get_db
 from app.models.cliente import Cliente
 from app.schemas.cliente import ClienteCreate, ClienteResponse, ClienteUpdate
-from app.dependencies import require_admin, require_vendedor
+from app.dependencies import require_admin, require_vendedor, get_current_user
 
 router = APIRouter(
     prefix="/clientes",
@@ -22,9 +22,9 @@ router = APIRouter(
 def crear_cliente(
     cliente: ClienteCreate,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
-    """Registra un nuevo cliente (requiere rol vendedor o superior)"""
+    """Registra un nuevo cliente"""
     # Verificar CI/NIT único
     if db.query(Cliente).filter(Cliente.ci_nit == cliente.ci_nit).first():
         raise HTTPException(
@@ -46,7 +46,7 @@ def listar_clientes(
     ci_nit: Optional[str] = Query(None, min_length=3),
     apellido: Optional[str] = Query(None, min_length=2),
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Lista clientes con filtros (requiere autenticación)"""
     query = db.query(Cliente)
@@ -63,7 +63,7 @@ def listar_clientes(
 def obtener_cliente(
     cliente_id: int,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Obtiene un cliente por ID"""
     cliente = db.query(Cliente).get(cliente_id)
@@ -77,7 +77,7 @@ def actualizar_cliente(
     cliente_id: int,
     cliente_data: ClienteUpdate,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Actualiza datos de cliente (solo admin)"""
     cliente = db.query(Cliente).get(cliente_id)

@@ -28,7 +28,7 @@ from app.schemas.pedidos import (
     MetodoPago
 )
 from app.dependencies import get_current_user
-
+from app.models.personal import Personal
 router = APIRouter(
     prefix="/pedidos",
     tags=["Pedidos"],
@@ -43,7 +43,7 @@ router = APIRouter(
 def crear_pedido(
     pedido_data: PedidoCreate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: Personal = Depends(get_current_user)
 ):
     """
     Crea un nuevo pedido con sus detalles.
@@ -132,7 +132,7 @@ def actualizar_pedido(
     pedido_id: int,
     pedido_update: PedidoUpdate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: Personal = Depends(get_current_user)
 ):
     """
     Actualiza el estado o método de pago de un pedido.
@@ -203,7 +203,7 @@ def descontar_inventario(pedido: Pedido, db: Session):
 def obtener_pedido(
     pedido_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: Personal = Depends(get_current_user)
 ):
     """
     Obtiene un pedido completo con todos sus detalles.
@@ -300,7 +300,7 @@ def obtener_pedido_completo(pedido_id: int, db: Session) -> PedidoResponse:
 def confirmar_pedido(
     pedido_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Cambia el estado a 'Pagado' y descuenta del inventario"""
     pedido = db.query(Pedido).get(pedido_id)
@@ -359,7 +359,7 @@ def listar_pedidos_sucursal(
     sucursal_id: int,
     estado: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: Personal = Depends(get_current_user)
 ):
     """
     Lista todos los pedidos de una sucursal, opcionalmente filtrados por estado.

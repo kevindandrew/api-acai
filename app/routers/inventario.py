@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal
 from datetime import date
-
+from app.models.personal import Personal
 from app.database import get_db
 from app.models import (
     InventarioMateriaPrima,
@@ -22,7 +22,7 @@ from app.schemas.inventario import (
     AsignarMateriaPrimaSucursal,
     AsignarProductoSucursal
 )
-from app.dependencies import require_encargado, require_admin
+from app.dependencies import require_encargado, require_admin_or_encargado, require_admin
 
 router = APIRouter(
     prefix="/inventario",
@@ -34,13 +34,14 @@ router = APIRouter(
 # --------------------------
 
 
-@router.post("/materias-primas/asignar", dependencies=[Depends(require_admin)])
+@router.post("/materias-primas/asignar")
 def asignar_materia_prima_sucursal(
     asignacion: AsignarMateriaPrimaSucursal,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(require_admin_or_encargado)
 ):
     """
-    Asigna una materia prima a una sucursal con cantidad inicial (solo admin)
+    Asigna una materia prima a una sucursal con cantidad inicial (solo admin o encargado)
     """
     # Verificar si la materia prima existe
     materia = db.query(MateriaPrima).get(asignacion.id_materia_prima)
@@ -87,7 +88,8 @@ def asignar_materia_prima_sucursal(
 def obtener_inventario_materias(
     sucursal_id: int,
     bajo_stock: Optional[bool] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(require_admin_or_encargado)
 ):
     """Obtiene el inventario de materias primas de una sucursal"""
     # Verificar existencia de sucursal
@@ -131,14 +133,15 @@ def obtener_inventario_materias(
     } for item in inventario]
 
 
-@router.patch("/materias-primas/ajustar", dependencies=[Depends(require_admin)])
+@router.patch("/materias-primas/ajustar")
 def ajustar_stock_materia(
     id_sucursal: int,
     id_materia: int,
     ajuste: AjusteMateriaStock,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(require_admin_or_encargado)
 ):
-    """Ajusta el stock de una materia prima (solo admin)"""
+    """Ajusta el stock de una materia prima (solo admin o encargado)"""
     inventario = db.query(InventarioMateriaPrima).filter_by(
         id_sucursal=id_sucursal,
         id_materia_prima=id_materia
@@ -167,13 +170,14 @@ def ajustar_stock_materia(
 # --------------------------
 
 
-@router.post("/productos/asignar", dependencies=[Depends(require_admin)])
+@router.post("/productos/asignar")
 def asignar_producto_sucursal(
     asignacion: AsignarProductoSucursal,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(require_admin_or_encargado)
 ):
     """
-    Asigna un producto a una sucursal con cantidad inicial (solo admin)
+    Asigna un producto a una sucursal con cantidad inicial (solo admin o encargado)
     """
     # Verificar si el producto existe
     producto = db.query(ProductoEstablecido).get(
@@ -219,7 +223,8 @@ def asignar_producto_sucursal(
 @router.get("/productos/sucursal/{sucursal_id}", response_model=List[InventarioProductoResponse])
 def obtener_inventario_productos(
     sucursal_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(require_admin_or_encargado)
 ):
     """Obtiene el inventario de productos establecidos de una sucursal"""
     # Verificar existencia de sucursal
@@ -248,14 +253,15 @@ def obtener_inventario_productos(
 # ... (los demás endpoints permanecen iguales, solo cambiando unidad_medida por unidad donde sea necesario)
 
 
-@router.patch("/productos/ajustar", dependencies=[Depends(require_admin)])
+@router.patch("/productos/ajustar")
 def ajustar_stock_producto(
     id_sucursal: int,
     id_producto: int,
     ajuste: AjusteProductoStock,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(require_admin_or_encargado)
 ):
-    """Ajusta el stock de un producto (solo admin)"""
+    """Ajusta el stock de un producto (solo admin o encargado)"""
     inventario = db.query(InventarioProductoEstablecido).filter_by(
         id_sucursal=id_sucursal,
         id_producto_establecido=id_producto
@@ -274,12 +280,13 @@ def ajustar_stock_producto(
     }
 
 
-@router.post("/productos/transferir", dependencies=[Depends(require_admin)])
+@router.post("/productos/transferir")
 def transferir_productos(
     transferencia: TransferenciaProductos,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(require_admin_or_encargado)
 ):
-    """Transfiere productos entre sucursales (solo admin)"""
+    """Transfiere productos entre sucursales (solo admin o encargado)"""
     # Validaciones básicas
     if transferencia.id_sucursal_origen == transferencia.id_sucursal_destino:
         raise HTTPException(
@@ -344,7 +351,8 @@ def transferir_productos(
 @router.get("/alertas/sucursal/{sucursal_id}", response_model=List[AlertaStockResponse])
 def obtener_alertas_stock(
     sucursal_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(require_admin_or_encargado)
 ):
     """Obtiene alertas de stock bajo para una sucursal"""
     # Verificar sucursal

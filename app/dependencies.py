@@ -47,24 +47,25 @@ async def get_current_active_user(
     return current_user
 
 
-def require_role(role_name: str):
-    """Factory para crear dependencias de control de roles."""
-    async def role_checker(
+def require_role(*role_names: str):
+    """Permite múltiples roles (ej: Admin o Encargado)."""
+    async def roles_checker(
         current_user: Personal = Depends(get_current_active_user)
     ) -> Personal:
-        if current_user.rol.nombre.lower() != role_name.lower():
+        if current_user.rol.nombre.lower() not in [r.lower() for r in role_names]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Se requiere rol de {role_name}"
+                detail=f"Se requiere uno de los siguientes roles: {', '.join(role_names)}"
             )
         return current_user
-    return role_checker
+    return roles_checker
 
 
 # Dependencias predefinidas
 require_admin = require_role("Administrador")
 require_encargado = require_role("Gerente Sucursal")
 require_vendedor = require_role("Vendedor")
+require_admin_or_encargado = require_role("Administrador", "Gerente Sucursal")
 
 
 def require_sucursal(sucursal_id: int = None):
