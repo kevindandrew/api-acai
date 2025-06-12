@@ -15,7 +15,8 @@ from app.models import (
     InventarioMateriaPrima,
     Sucursal,
     Personal,
-    Cliente
+    Cliente,
+    pedido
 )
 from app.models.inventario_producto_establecido import InventarioProductoEstablecido
 from app.schemas.pedidos import (
@@ -25,7 +26,9 @@ from app.schemas.pedidos import (
     PedidoResponse,
     PedidoUpdate,
     EstadoPedido,
-    MetodoPago
+    MetodoPago,
+    DetallePedidoCreate,
+    ProductoPersonalizadoResponse
 )
 from app.dependencies import get_current_user
 from app.models.personal import Personal
@@ -33,6 +36,115 @@ router = APIRouter(
     prefix="/pedidos",
     tags=["Pedidos"],
 )
+
+
+def _procesar_producto_establecido(db: Session, pedido_id: int, detalle_data: DetallePedidoCreate, sucursal_id: int):
+    """Procesa un producto establecido en el pedido"""
+    producto = db.query(ProductoEstablecido).get(
+        detalle_data.id_producto_establecido)
+    if not producto:
+        raise HTTPException(
+            status_code=404, detail="Producto establecido no encontrado")
+
+    # Verificar disponibilidad en inventario
+    inventario = db.query(InventarioProductoEstablecido).filter_by(
+        id_sucursal=sucursal_id,
+        id_producto_establecido=detalle_data.id_producto_establecido
+    ).first()
+
+    if not inventario or inventario.cantidad_disponible < detalle_data.cantidad:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Stock insuficiente para el producto {producto.nombre}"
+        )
+
+    # Crear el detalle del pedido
+    detalle = DetallePedido(
+        id_pedido=pedido_id,
+        tipo_producto="Establecido",
+        id_producto_establecido=detalle_data.id_producto_establecido,
+        cantidad=detalle_data.cantidad,
+        precio_unitario=producto.precio_unitario
+    )
+    db.add(detalle)
+
+
+def _procesar_producto_personalizado(db: Session, pedido_id: int, detalle_data: DetallePedidoCreate, sucursal_id: int):
+    """Procesa un producto personalizado en el pedido"""
+    if not detalle_data.producto_personalizado:
+        raise HTTPException(
+            status_code=400, detail="Datos incompletos para producto personalizado")
+
+    # Crear el producto personalizado
+    producto_pers = ProductoPersonalizado(
+        id_pedido=pedido_id,
+        nombre_personalizado=detalle_data.producto_personalizado.nombre_personalizado
+    )
+    db.add(producto_pers)
+    db.flush()  # Para obtener el ID
+
+    # Procesar cada materia prima del producto personalizado
+    precio_total_personalizado = Decimal('0')
+
+    for mp_data in detalle_data.producto_personalizado.detalles:
+        materia_prima = db.query(MateriaPrima).get(mp_data.id_materia_prima)
+        if not materia_prima:
+            raise HTTPException(
+                status_code=404, detail=f"Materia prima {mp_data.id_materia_prima} no encontrada")
+
+        # Verificar disponibilidad en inventario
+        inventario = db.query(InventarioMateriaPrima).filter_by(
+            id_sucursal=sucursal_id,
+            id_materia_prima=mp_data.id_materia_prima
+        ).first()
+
+        if not inventario or inventario.cantidad_stock < mp_data.cantidad:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Stock insuficiente para {materia_prima.nombre}"
+            )
+
+        # Calcular precio con margen de ganancia
+        margen = detalle_data.producto_personalizado.margen or Decimal('0.30')
+        precio_con_margen = materia_prima.precio_unitario * (1 + margen)
+
+        # Crear detalle de materia prima
+        detalle_mp = DetalleProductoPersonalizado(
+            id_producto_personalizado=producto_pers.id_producto_personalizado,
+            id_materia_prima=mp_data.id_materia_prima,
+            cantidad=mp_data.cantidad,
+            precio_unitario=precio_con_margen
+        )
+        db.add(detalle_mp)
+
+        precio_total_personalizado += mp_data.cantidad * precio_con_margen
+
+    # Crear detalle del pedido para el producto personalizado
+    detalle = DetallePedido(
+        id_pedido=pedido_id,
+        tipo_producto="Personalizado",
+        id_producto_personalizado=producto_pers.id_producto_personalizado,
+        cantidad=detalle_data.cantidad,
+        precio_unitario=precio_total_personalizado
+    )
+    db.add(detalle)
+
+
+def _actualizar_total_pedido(db: Session, pedido_id: int):
+    """Actualiza el total del pedido sumando todos los subtotales"""
+    db.execute(
+        text("""
+            UPDATE pedido
+            SET total = (
+                SELECT COALESCE(SUM(subtotal), 0)
+                FROM detalle_pedido
+                WHERE id_pedido = :pedido_id
+            )
+            WHERE id_pedido = :pedido_id
+        """).bindparams(pedido_id=pedido_id)
+    )
+    db.flush()
+
 
 # --------------------------
 # Endpoints para Pedidos
@@ -46,84 +158,48 @@ def crear_pedido(
     current_user: Personal = Depends(get_current_user)
 ):
     """
-    Crea un nuevo pedido con sus detalles.
-    Puede ser anónimo (sin id_cliente) o asociado a un cliente.
+    Crea un nuevo pedido con sus detalles, tanto para productos establecidos como personalizados.
     """
-    # Validar sucursal
+    # Validaciones iniciales (sucursal, personal, cliente)
     sucursal = db.query(Sucursal).get(pedido_data.id_sucursal)
     if not sucursal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sucursal no encontrada"
-        )
+        raise HTTPException(status_code=404, detail="Sucursal no encontrada")
 
-    # Validar personal
     personal = db.query(Personal).get(pedido_data.id_personal)
     if not personal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Personal no encontrado"
-        )
+        raise HTTPException(status_code=404, detail="Personal no encontrado")
 
-    # Validar cliente solo si se proporciona
-    cliente = None
-    if pedido_data.id_cliente is not None:  # Cambio importante aquí
+    if pedido_data.id_cliente is not None:
         cliente = db.query(Cliente).get(pedido_data.id_cliente)
         if not cliente:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Cliente no encontrado"
-            )
+                status_code=404, detail="Cliente no encontrado")
 
-    # Crear el pedido
+    # Crear el pedido base
     pedido = Pedido(
         id_personal=pedido_data.id_personal,
         id_sucursal=pedido_data.id_sucursal,
         id_cliente=pedido_data.id_cliente,
-        estado="Pendiente",
-        metodo_pago=pedido_data.metodo_pago,
+        estado=EstadoPedido.PENDIENTE.value,
+        metodo_pago=pedido_data.metodo_pago.value if pedido_data.metodo_pago else None,
         total=Decimal('0')
     )
     db.add(pedido)
-    db.flush()
+    db.flush()  # Para obtener el ID del pedido
 
-    # Procesar detalles
+    # Procesar cada detalle del pedido
     for detalle_data in pedido_data.detalles:
         if detalle_data.tipo_producto == "Establecido":
-            producto = db.query(ProductoEstablecido).get(
-                detalle_data.id_producto_establecido)
-            if not producto:
-                raise HTTPException(
-                    status_code=404, detail="Producto no encontrado")
+            _procesar_producto_establecido(
+                db, pedido.id_pedido, detalle_data, pedido_data.id_sucursal)
+        else:
+            _procesar_producto_personalizado(
+                db, pedido.id_pedido, detalle_data, pedido_data.id_sucursal)
 
-            detalle = DetallePedido(
-                id_pedido=pedido.id_pedido,
-                tipo_producto="Establecido",
-                id_producto_establecido=detalle_data.id_producto_establecido,
-                cantidad=detalle_data.cantidad,
-                precio_unitario=producto.precio_unitario
-            )
-            db.add(detalle)
+    # Calcular el total del pedido
+    _actualizar_total_pedido(db, pedido.id_pedido)
 
-    # Actualizar el total usando text() para el SQL directo
-    db.execute(
-        text(
-            "UPDATE pedido SET total = ("
-            "SELECT COALESCE(SUM(subtotal), 0) FROM detalle_pedido "
-            "WHERE id_pedido = :pedido_id"
-            ") WHERE id_pedido = :pedido_id"
-        ).bindparams(pedido_id=pedido.id_pedido)
-    )
-
-    # Alternativa más segura con parámetros nombrados:
-    # db.execute(
-    #     text("UPDATE pedido SET total = (SELECT COALESCE(SUM(subtotal), 0) FROM detalle_pedido WHERE id_pedido = :pid) WHERE id_pedido = :pid"),
-    #     {"pid": pedido.id_pedido}
-    # )
-
-    db.refresh(pedido)
     db.commit()
-
     return obtener_pedido_completo(pedido.id_pedido, db)
 
 
