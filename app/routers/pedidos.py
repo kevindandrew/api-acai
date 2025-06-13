@@ -131,18 +131,30 @@ def _procesar_producto_personalizado(db: Session, pedido_id: int, detalle_data: 
 
 
 def _actualizar_total_pedido(db: Session, pedido_id: int):
-    """Actualiza el total del pedido sumando todos los subtotales"""
+    """Actualiza el total del pedido de forma más confiable"""
+    # Opción 1: Usando SQL directo con parámetros correctos
     db.execute(
         text("""
-            UPDATE pedido
+            UPDATE pedido 
             SET total = (
                 SELECT COALESCE(SUM(subtotal), 0)
                 FROM detalle_pedido
                 WHERE id_pedido = :pedido_id
             )
             WHERE id_pedido = :pedido_id
-        """).bindparams(pedido_id=pedido_id)
+        """),
+        {"pedido_id": pedido_id}
     )
+    db.flush()
+
+    # Opción 2 (alternativa): Cálculo en Python para verificación
+    detalles = db.query(DetallePedido).filter_by(id_pedido=pedido_id).all()
+    total_calculado = sum(Decimal(str(detalle.subtotal))
+                          for detalle in detalles)
+
+    # Actualización adicional para asegurar consistencia
+    pedido = db.query(Pedido).get(pedido_id)
+    pedido.total = total_calculado
     db.flush()
 
 
