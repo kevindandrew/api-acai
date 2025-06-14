@@ -11,7 +11,7 @@ from app.schemas.productos import (
     MateriaPrimaResponse
 )
 from app.models.personal import Personal
-from app.dependencies import require_admin, require_encargado
+from app.dependencies import get_current_user, require_admin, require_encargado
 
 router = APIRouter(
     prefix="/productos",
@@ -47,7 +47,7 @@ def listar_productos(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Lista productos con filtro por tipo"""
     query = db.query(ProductoEstablecido)
@@ -136,7 +136,7 @@ def crear_materia_prima(
 def listar_materias_primas(
     stock_min: Optional[Decimal] = Query(None, gt=0),
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Lista materias primas con filtro por stock mínimo"""
     query = db.query(MateriaPrima)

@@ -11,7 +11,7 @@ from app.schemas.sucursal import (
     SucursalResponse,
     SucursalUpdate
 )
-from app.dependencies import require_admin, require_encargado
+from app.dependencies import get_current_user, require_admin, require_encargado
 
 router = APIRouter(
     prefix="/sucursales",
@@ -42,7 +42,7 @@ def listar_sucursales(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Lista todas las sucursales (paginado)"""
     return db.query(Sucursal).offset(skip).limit(limit).all()
@@ -52,7 +52,7 @@ def listar_sucursales(
 def obtener_sucursal(
     sucursal_id: int,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Obtiene los detalles de una sucursal específica"""
     sucursal = db.query(Sucursal).get(sucursal_id)
@@ -92,7 +92,7 @@ def actualizar_sucursal(
 def obtener_inventario_sucursal(
     sucursal_id: int,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Obtiene el inventario completo de una sucursal"""
     sucursal = db.query(Sucursal).get(sucursal_id)

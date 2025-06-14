@@ -22,7 +22,7 @@ from app.schemas.inventario import (
     AsignarMateriaPrimaSucursal,
     AsignarProductoSucursal
 )
-from app.dependencies import require_encargado, require_admin_or_encargado, require_admin
+from app.dependencies import get_current_user, require_encargado, require_admin_or_encargado, require_admin
 
 router = APIRouter(
     prefix="/inventario",
@@ -89,7 +89,7 @@ def obtener_inventario_materias(
     sucursal_id: int,
     bajo_stock: Optional[bool] = None,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin_or_encargado)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Obtiene el inventario de materias primas de una sucursal"""
     # Verificar existencia de sucursal
@@ -224,7 +224,7 @@ def asignar_producto_sucursal(
 def obtener_inventario_productos(
     sucursal_id: int,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin_or_encargado)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Obtiene el inventario de productos establecidos de una sucursal"""
     # Verificar existencia de sucursal
@@ -352,7 +352,7 @@ def transferir_productos(
 def obtener_alertas_stock(
     sucursal_id: int,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin_or_encargado)
+    current_user: Personal = Depends(get_current_user)
 ):
     """Obtiene alertas de stock bajo para una sucursal"""
     # Verificar sucursal
