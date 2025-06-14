@@ -11,7 +11,7 @@ from app.schemas.personal import (
     PersonalUpdate
 )
 from app.security import get_password_hash
-from app.dependencies import get_current_active_user, require_admin
+from app.dependencies import get_current_active_user, get_current_user, require_admin
 
 router = APIRouter(
     prefix="/personal",
@@ -52,7 +52,7 @@ def listar_personal(
     limit: int = Query(100, le=1000),
     sucursal_id: Optional[int] = Query(None, gt=0),
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     """
     Lista personal con filtrado por sucursal.
@@ -72,7 +72,7 @@ def listar_personal(
 def obtener_personal(
     personal_id: int,
     db: Session = Depends(get_db),
-    current_user: Personal = Depends(require_admin)
+    current_user: Personal = Depends(get_current_user)
 ):
     personal = db.query(Personal).get(personal_id)
     if not personal:
