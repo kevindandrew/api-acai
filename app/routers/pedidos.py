@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from decimal import Decimal
 from datetime import datetime
-from sqlalchemy import text  # Agrega esto al inicio de tu archivo
+from sqlalchemy import text, func  # Agrega esto al inicio de tu archivo
 from app.database import get_db
 from app.models import (
     Pedido,
@@ -468,3 +470,160 @@ def listar_pedidos_sucursal(
     pedidos = query.order_by(Pedido.fecha_pedido.desc()).all()
 
     return [obtener_pedido_completo(p.id_pedido, db) for p in pedidos]
+
+
+@router.get("/sucursal/{sucursal_id}/optimizado", response_model=List[PedidoResponse])
+def listar_pedidos_sucursal_optimizado(
+    sucursal_id: int,
+    estado: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(get_current_user)
+):
+    """
+    Lista paginada de pedidos con joins optimizados - VERSIÓN CORREGIDA
+    """
+    # Validar parámetros de paginación
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 100:
+        page_size = 20
+
+    # Consulta base con joins optimizados
+    query = db.query(Pedido).options(
+        joinedload(Pedido.detalles)
+        .joinedload(DetallePedido.producto_establecido),
+        joinedload(Pedido.detalles)
+        .joinedload(DetallePedido.producto_personalizado)
+        .joinedload(ProductoPersonalizado.detalles)
+        .joinedload(DetalleProductoPersonalizado.materia_prima),
+        joinedload(Pedido.personal),
+        joinedload(Pedido.sucursal),
+        joinedload(Pedido.cliente)
+    ).filter(Pedido.id_sucursal == sucursal_id)
+
+    if estado:
+        query = query.filter(Pedido.estado == estado)
+
+    # Paginación
+    total = query.count()
+    pedidos = query.order_by(Pedido.fecha_pedido.desc())\
+        .offset((page - 1) * page_size)\
+        .limit(page_size)\
+        .all()
+
+    # Construir respuesta optimizada y validada
+    response = []
+    for p in pedidos:
+        detalles_response = []
+
+        for detalle in p.detalles:
+            if detalle.tipo_producto == 'Establecido':
+                detalle_data = DetallePedidoEstablecidoResponse(
+                    id_detalle_pedido=detalle.id_detalle_pedido,
+                    tipo_producto="Establecido",
+                    id_producto_establecido=detalle.id_producto_establecido,
+                    nombre_producto=detalle.producto_establecido.nombre if detalle.producto_establecido else "Desconocido",
+                    cantidad=detalle.cantidad,
+                    precio_unitario=float(
+                        detalle.precio_unitario) if detalle.precio_unitario else 0.0,
+                    subtotal=float(
+                        detalle.subtotal) if detalle.subtotal else 0.0
+                )
+            else:
+                detalles_mp = []
+                if detalle.producto_personalizado and detalle.producto_personalizado.detalles:
+                    for mp in detalle.producto_personalizado.detalles:
+                        detalles_mp.append({
+                            "id_materia_prima": mp.id_materia_prima,
+                            "nombre_materia": mp.materia_prima.nombre if mp.materia_prima else "Desconocido",
+                            "cantidad": mp.cantidad,
+                            "precio_unitario": float(mp.precio_unitario) if mp.precio_unitario else 0.0,
+                            "subtotal": float(mp.subtotal) if mp.subtotal else 0.0,
+                            "unidad": mp.materia_prima.unidad if mp.materia_prima and mp.materia_prima.unidad else "unidad"
+                        })
+
+                detalle_data = DetallePedidoPersonalizadoResponse(
+                    id_detalle_pedido=detalle.id_detalle_pedido,
+                    tipo_producto="Personalizado",
+                    id_producto_personalizado=detalle.id_producto_personalizado,
+                    producto_personalizado=ProductoPersonalizadoResponse(
+                        id_producto_personalizado=detalle.producto_personalizado.id_producto_personalizado if detalle.producto_personalizado else None,
+                        nombre_personalizado=detalle.producto_personalizado.nombre_personalizado if detalle.producto_personalizado else "Desconocido",
+                        detalles=detalles_mp
+                    ),
+                    cantidad=detalle.cantidad,
+                    precio_unitario=float(
+                        detalle.precio_unitario) if detalle.precio_unitario else 0.0,
+                    subtotal=float(
+                        detalle.subtotal) if detalle.subtotal else 0.0
+                )
+
+            detalles_response.append(detalle_data)
+
+        pedido_response = PedidoResponse(
+            id_pedido=p.id_pedido,
+            fecha_pedido=p.fecha_pedido,
+            id_personal=p.id_personal,
+            nombre_personal=p.personal.nombre if p.personal else "Desconocido",
+            id_sucursal=p.id_sucursal,
+            nombre_sucursal=p.sucursal.nombre if p.sucursal else "Desconocido",
+            id_cliente=p.id_cliente,
+            nombre_cliente=p.cliente.apellido if p.cliente else None,
+            estado=p.estado,
+            metodo_pago=p.metodo_pago,
+            total=float(p.total) if p.total else 0.0,
+            detalles=detalles_response
+        )
+
+        response.append(pedido_response)
+
+    # Agregar headers de paginación
+    headers = {
+        "X-Total-Count": str(total),
+        "X-Page": str(page),
+        "X-Page-Size": str(page_size),
+        "X-Total-Pages": str((total + page_size - 1) // page_size)
+    }
+
+    return JSONResponse(content=jsonable_encoder(response), headers=headers)
+
+
+@router.get("/sucursal/{sucursal_id}/resumido", response_model=List[dict])
+def listar_pedidos_resumido(
+    sucursal_id: int,
+    estado: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Personal = Depends(get_current_user)
+):
+    """
+    Endpoint rápido para listado tabular con datos básicos
+    """
+    query = db.query(
+        Pedido.id_pedido,
+        Pedido.fecha_pedido,
+        Personal.nombre.label("nombre_personal"),
+        Pedido.estado,
+        Pedido.metodo_pago,
+        Pedido.total,
+        func.count(DetallePedido.id_detalle_pedido).label("num_productos")
+    ).join(Pedido.personal)\
+     .outerjoin(Pedido.detalles)\
+     .filter(Pedido.id_sucursal == sucursal_id)\
+     .group_by(Pedido.id_pedido, Personal.nombre)
+
+    if estado:
+        query = query.filter(Pedido.estado == estado)
+
+    pedidos = query.order_by(Pedido.fecha_pedido.desc()).all()
+
+    return [{
+        "id_pedido": p.id_pedido,
+        "fecha": p.fecha_pedido.strftime("%Y-%m-%d %H:%M"),
+        "personal": p.nombre_personal,
+        "estado": p.estado,
+        "metodo_pago": p.metodo_pago,
+        "total": float(p.total) if p.total else 0,
+        "productos": p.num_productos
+    } for p in pedidos]
