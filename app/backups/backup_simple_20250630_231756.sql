@@ -1,0 +1,2 @@
+
+-- Estructura para tabla sucursal

@@ -11,6 +11,7 @@ from app.routers.inventario import router as inventario_router
 from app.routers.pedidos import router as pedidos_router
 from app.routers.reportes import router as reportes_router
 from app.routers.predicciones import router as predicciones_router
+from app.routers.backups import router as backups_router
 app = FastAPI(
     title="API Heladería",
     description="Sistema de gestión para heladerías",
@@ -36,4 +37,5 @@ app.include_router(inventario_router)
 app.include_router(pedidos_router)
 app.include_router(reportes_router)
 app.include_router(predicciones_router)
+app.include_router(backups_router)
 # Endpoint básico de healthcheck
