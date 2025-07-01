@@ -39,8 +39,8 @@ def crear_backup_simple(
         with open(filepath, 'w', encoding='utf-8') as f:
             # Obtener todas las tablas
             tables = db.execute(text("""
-                SELECT table_name 
-                FROM information_schema.tables 
+                SELECT table_name
+                FROM information_schema.tables
                 WHERE table_schema = 'public'
             """)).fetchall()
 
@@ -99,8 +99,8 @@ def crear_backup_simple(
                             elif isinstance(value, datetime):
                                 values.append(f"'{value.isoformat()}'")
                             else:
-                                values.append(
-                                    f"'{str(value).replace("'", "''")}'")
+                                escaped_value = str(value).replace("'", "''")
+                                values.append(f"'{escaped_value}'")
 
                         f.write(
                             f"INSERT INTO {table_name} VALUES ({', '.join(values)});\n"
