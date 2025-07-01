@@ -38,4 +38,10 @@ app.include_router(pedidos_router)
 app.include_router(reportes_router)
 app.include_router(predicciones_router)
 app.include_router(backups_router)
+
 # Endpoint básico de healthcheck
+
+
+@app.get("/")
+def read_root():
+    return {"message": "API Heladería funcionando correctamente"}
